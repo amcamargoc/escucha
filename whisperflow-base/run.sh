@@ -6,6 +6,13 @@ abort()
     exit 1
 }
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="$REPO_ROOT/.venv"
+export PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}"
+
+cd "$SCRIPT_DIR"
+
 if [ "$#" -eq 0 ]; then
     echo "No arguments provided. Usage: 
     1. '-local' to build local environment
@@ -18,18 +25,16 @@ elif [ $1 = "-local" ]; then
     trap 'abort' 0
     set -e
     echo "Running format, linter and tests"
-    rm -rf .venv
+    rm -rf "$VENV_DIR"
 
-    # Use python3.12 if available as it's more stable for currently pinned dependencies
     PYTHON_CMD="python3"
     if command -v python3.12 >/dev/null 2>&1; then
         PYTHON_CMD="python3.12"
     fi
 
-    $PYTHON_CMD -m venv .venv
-    source .venv/bin/activate
+    $PYTHON_CMD -m venv "$VENV_DIR"
+    source "$VENV_DIR/bin/activate"
     pip install --upgrade pip wheel
-    # Pin setuptools < 70 for openai-whisper compatibility
     pip install "setuptools<70"
     pip install -r ./requirements-dev.txt
 
@@ -41,7 +46,7 @@ elif [ $1 = "-test" ]; then
     set -e
     
     echo "Running format, linter and tests"
-    source .venv/bin/activate
+    source "$VENV_DIR/bin/activate"
     black whisperflow tests
     pylint --fail-under=9.9 whisperflow tests
     pytest --ignore=tests/benchmark --cov-fail-under=95 --cov --log-cli-level=INFO whisperflow -v tests
@@ -50,11 +55,11 @@ elif [ $1 = "-docker" ]; then
     docker stop whisperflow-container
     docker rm whisperflow-container
     docker rmi whisperflow-image
-    # build docker and run
     docker build --tag whisperflow-image --build-arg CACHEBUST=$(date +%s) . --file Dockerfile.test
     docker run --name whisperflow-container -p 8888:8888 -d whisperflow-image
 elif [ $1 = "-benchmark" ]; then
     echo "Running WhisperFlow Server"
+    source "$VENV_DIR/bin/activate"
     kill $(lsof -t -i:8181) 
     nohup uvicorn whisperflow.fast_server:app --host 0.0.0.0 --port 8181 &
     sleep 2s
@@ -63,12 +68,11 @@ elif [ $1 = "-benchmark" ]; then
     kill $(lsof -t -i:8181)
 elif [ $1 = "-run-server" ]; then
     echo "Running WhisperFlow server"
-    kill $(lsof -t -i:8181) 
+    source "$VENV_DIR/bin/activate"
+    kill $(lsof -t -i:8181) 2>/dev/null || true
     uvicorn whisperflow.fast_server:app --host 0.0.0.0 --port 8181
 elif [ $1 = "-test-package" ]; then
     echo "Running WhisperFlow package setup"
-    # pip install twine
-    # pip install wheel
     python setup.py sdist bdist_wheel
     rm -rf .venv_test
     python3 -m venv .venv_test
@@ -76,7 +80,6 @@ elif [ $1 = "-test-package" ]; then
     VERSION=$(python -c "import whisperflow; print(whisperflow.__version__)")
     pip install ./dist/whisperflow-$VERSION-py3-none-any.whl
     pytest --ignore=tests/benchmark --cov-fail-under=95 --cov whisperflow -v tests
-    # twine upload ./dist/*
 else
   echo "Wrong argument is provided. Usage:
     1. '-local' to build local environment

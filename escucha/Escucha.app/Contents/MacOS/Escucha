@@ -1,0 +1,25 @@
+#!/bin/zsh
+# Portable launcher for Escucha.app (located inside escucha/Escucha.app)
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ESCUCHA_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$ESCUCHA_DIR/.." && pwd)"
+export PYTHONPATH="$REPO_ROOT/whisperflow-base:$ESCUCHA_DIR:${PYTHONPATH:-}"
+
+cd "$ESCUCHA_DIR" || exit 1
+
+# Avoid launching duplicate Escucha Menu Bar instances
+pkill -f "escucha.menubar" 2>/dev/null || true
+
+# First-time setup check: if .venv does not exist yet, guide the user
+if [ ! -x "$REPO_ROOT/.venv/bin/python" ]; then
+    osascript -e 'display dialog "Welcome to Escucha!\n\nFirst-time setup will now open Terminal to install the local Python environment and audio dependencies (~1–2 minutes)." buttons {"Cancel", "Start Setup"} default button "Start Setup" with title "Escucha Setup"' >/dev/null 2>&1 || exit 0
+    osascript -e "tell application \"Terminal\"
+        activate
+        do script \"cd '$ESCUCHA_DIR' && ./run.sh -start\"
+    end tell"
+    exit 0
+fi
+
+exec "$REPO_ROOT/.venv/bin/python" -m escucha.menubar

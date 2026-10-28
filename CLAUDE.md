@@ -1,73 +1,36 @@
-# CLAUDE.md
+# CLAUDE.md — AI Agent Architecture & Engineering Guide
 
-Guidance for Claude Code (and other AI assistants) working in this repository.
-See [README.md](README.md) for end-user/usage detail; this file is the agent-facing reference.
+Mandatory architectural and engineering rules for Claude Code and all AI coding assistants working in this repository.
+See [README.md](README.md) for end-user usage and [AGENTS.md](AGENTS.md) for the strict layer rules.
 
-## Project overview
+---
 
-Whisper Flow is a real-time, streaming speech-to-text service built on OpenAI Whisper and
-served via FastAPI. It splits incoming audio into temporal **tumbling windows** to emit partial
-transcripts at sub-500ms latency. Shipped as the Python package `whisperflow` (v1.3.0,
-Python 3.8+, developed/tested on 3.12).
+## 1. Two-Folder Root Architecture
 
-## Commands
+This repository strictly separates the cloned upstream engine (`whisperflow-base/`) from our product (`escucha/`):
 
-Everything runs through [run.sh](run.sh). The `-local` target rebuilds `.venv` from scratch;
-the other targets assume the venv is already activated (`source .venv/bin/activate`).
+- **`escucha/`** — The **Escucha** macOS voice dictation & Push-to-Talk product (`Escucha.app`, `escucha/escucha/` Python package, `escucha/tests/` QA test suite, `escucha/run.sh`).
+- **`whisperflow-base/`** — The cloned open-source WhisperFlow base repository (`whisperflow-base/whisperflow/` core STT package, `whisperflow-base/tests/`, `whisperflow-base/docs/`).
+
+**Never place loose scripts or extra folders at the repository root, and never put Escucha UI/hotkey/OS code inside `whisperflow-base/`.**
+
+---
+
+## 2. Commands
 
 | Command | What it does |
 |---------|--------------|
-| `./run.sh -local` | Fresh `.venv` + install deps + format + lint + tests (first-time setup) |
-| `./run.sh -test` | black + pylint + pytest — the inner-loop check before committing |
-| `./run.sh -run-server` | uvicorn FastAPI server on port 8181 |
-| `./run.sh -benchmark` | Start server, run `tests/benchmark` (LibriSpeech WER/latency), stop |
-| `./run.sh -docker` | Build and run the container on port 8888 |
+| `./escucha/run.sh -start` | Set up `.venv` & `base.en.pt` if missing, then launch **Escucha** (`🎙️`) in the macOS Menu Bar |
+| `./escucha/run.sh -test` | Run `black`, `pylint --fail-under=9.9`, and `pytest` across **both** `escucha/` and `whisperflow-base/` |
+| `./escucha/run.sh -cli` | Run the terminal Push-to-Talk client against a WhisperFlow WebSocket server |
+| `./whisperflow-base/run.sh -run-server` | Start the base WhisperFlow FastAPI server on port 8181 |
+| `./whisperflow-base/run.sh -test` | Run only the base engine's format, lint, and unit test suite |
 
-Running a single test (venv activated): `pytest tests/test_streaming.py -v`
+---
 
-## Quality gates — must pass
+## 3. Technical & Thread-Safety Conventions
 
-CI enforces these via [Dockerfile.test](Dockerfile.test). `./run.sh -test` runs the same checks
-locally:
-
-- `black whisperflow tests` — formatting (no diffs allowed)
-- `pylint --fail-under=9.9 whisperflow tests` — near-perfect lint score required
-- `pytest --ignore=tests/benchmark --cov-fail-under=95 --cov whisperflow` — **95% coverage**
-
-Implication: every code change needs accompanying tests to keep coverage ≥95%, and all code
-must be black-formatted and pass pylint at 9.9+. Run `./run.sh -test` before considering work
-done.
-
-## Architecture & key files
-
-- [whisperflow/transcriber.py](whisperflow/transcriber.py) — Whisper model loading and
-  inference: `get_model()` (returns a `ModelPool`), `transcribe_pcm_chunks()`,
-  `transcribe_pcm_chunks_async()`. Never call one Whisper model from two threads at once: its
-  decoder installs kv-cache hooks on the model, so concurrent calls corrupt each other. Borrow a
-  replica with `ModelPool.acquire()` (`transcribe_pcm_chunks` does this for you).
-- [whisperflow/streaming.py](whisperflow/streaming.py) — tumbling-window streaming logic,
-  `TranscribeSession`, and the committed-prefix scheme (`Segment.commit`)
-- [whisperflow/fast_server.py](whisperflow/fast_server.py) — FastAPI app: WebSocket `/ws`,
-  `GET /health`, `GET /ready`, `POST /transcribe_pcm_chunk`
-- [docs/protocol.md](docs/protocol.md) — wire contract; bump `PROTOCOL_VERSION` in
-  `whisperflow/__init__.py` on any breaking change to it
-- [whisperflow/chat_room.py](whisperflow/chat_room.py) — multi-user chat
-- [whisperflow/audio/microphone.py](whisperflow/audio/microphone.py) — audio input
-- [whisperflow/models/](whisperflow/models/) — bundled `tiny.en.pt` model
-- [tests/](tests/) — pytest suite. `tests/benchmark/` and `tests/audio/` are excluded from the
-  coverage gate.
-
-## Environment gotchas
-
-- **Python 3.12** preferred — `run.sh` auto-selects `python3.12` when available.
-- **`setuptools<70`** pin is required for `openai-whisper` compatibility (see `run.sh`).
-- **PortAudio** system dependency is required for PyAudio:
-  `brew install portaudio` (macOS) / `apt-get install portaudio19-dev` (Debian/Ubuntu).
-- **Audio format**: 16 kHz, mono, 16-bit signed integer (int16) PCM.
-- **Ports**: 8181 when run locally, 8888 in Docker.
-
-## Conventions
-
-- Match the existing style; keep modules small and focused.
-- Add tests with every code change (the 95% coverage gate enforces this).
-- Always run `./run.sh -test` and ensure it is green before finishing.
+- **Whisper Model Thread-Safety**: Never call a single Whisper model instance from two threads simultaneously (`kv-cache` hooks corrupt concurrent calls). Always use `ts.get_model()` (`ModelPool`) and `ts.transcribe_pcm_chunks_async()`.
+- **macOS AppKit Thread-Safety (`escucha/escucha/menubar.py`)**: Never mutate `rumps.App.title` or `rumps.MenuItem` properties directly from background `asyncio` or `Quartz` threads. Always dispatch UI mutations onto the main Cocoa thread via `self._ui(...)` (`PyObjCTools.AppHelper.callAfter`).
+- **Quartz CGEventTap Resilience**: Always handle `kCGEventTapDisabledByTimeout` and `kCGEventTapDisabledByUserInput` by re-enabling `self.event_tap`.
+- **Quality Gate**: Always run `./escucha/run.sh -test` and verify it passes before finishing any task.

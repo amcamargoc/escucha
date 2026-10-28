@@ -1,0 +1,4 @@
+# Escucha product dependencies (extends the whisperflow-base engine)
+-r ../whisperflow-base/requirements.txt
+rumps==0.4.0; sys_platform == 'darwin'
+pynput==1.8.2; sys_platform == 'darwin'

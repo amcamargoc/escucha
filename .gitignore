@@ -162,3 +162,10 @@ cython_debug/
 .vscode/
 
 nohup.out
+
+# macOS & downloaded large Whisper models (>100MB GitHub limit; auto-downloaded on first run)
+.DS_Store
+**/whisperflow/models/base*.pt
+**/whisperflow/models/small*.pt
+**/whisperflow/models/medium*.pt
+**/whisperflow/models/large*.pt
