@@ -16,5 +16,5 @@ jiwer==4.0.0
 httpx==0.27.0
 
 # examples / benchmarks
-pandas==3.0.1
+pandas==3.1.0
 websocket-client==1.9.2
